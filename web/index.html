@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Việt store</title>
+    
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            background-color: #f4f4f4; 
+            color: #333;
+        }
+        .container { 
+            width: 90%; 
+            max-width: 1200px;
+            margin: 20px auto; 
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .header { 
+            background: #333; 
+            color: white; 
+            padding: 15px 5%;
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
+        .header a {
+            color: white;
+            text-decoration: none;
+            margin-left: 15px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+        .header a:hover {
+            background: #555;
+        }
+        .product-list { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+            gap: 20px; 
+            margin-top: 20px; 
+        }
+        .product-card { 
+            background: #f9f9f9; 
+            padding: 15px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+        }
+        .product-card h3 { 
+            color: #007bff; 
+            margin-top: 0;
+        }
+        .product-card button { 
+            background-color: #28a745; 
+            color: white; 
+            border: none; 
+            padding: 10px 15px; 
+            cursor: pointer; 
+            border-radius: 5px; 
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        .product-card button:hover {
+            background-color: #218838;
+        }
+        .checkout-button {
+            background-color: #dc3545 !important;
+        }
+        
+        /* CSS cho Giỏ hàng và Checkout */
+        .cart-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #eee; }
+        .cart-controls button { margin: 0 5px; padding: 5px 8px; cursor: pointer; border: 1px solid #ccc; background: #fff; border-radius: 4px; }
+        .checkout-form label { display: block; margin-top: 10px; font-weight: bold; }
+        .checkout-form input[type="text"], .checkout-form input[type="tel"] { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;}
+        
+        /* CSS cho Admin Table */
+        .order-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .order-table th, .order-table td { border: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; font-size: 0.9em;}
+        .order-table th { background-color: #f0f8ff; }
+        .status-new { color: orange; font-weight: bold; }
+        .status-confirmed { color: blue; font-weight: bold; }
+        .status-packaging, .status-shipping { color: purple; font-weight: bold; }
+        .status-done { color: green; font-weight: bold; }
+
+        /* CSS cho thanh Tìm kiếm */
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f0f0f0;
+        }
+        .search-bar input[type="text"] {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .search-bar button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .search-bar button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Việt Store </h1>
+        <nav>
+            <a href="javascript:void(0)" onclick="router.navigate('/home')">Trang Chủ</a> 
+            <a href="javascript:void(0)" onclick="router.navigate('/cart')" id="cart-link">Giỏ Hàng (0)</a> 
+            <a href="javascript:void(0)" onclick="router.navigate('/admin')">Quản Trị Đơn hàng</a> 
+            <a href="javascript:void(0)" onclick="router.navigate('/login')">Đăng Nhập</a>
+        </nav>
+    </div>
+    
+    <div id="app" class="container">
+        Đang tải...
+    </div>
+
+    <script>
+        // --- 1. CẤU HÌNH VÀ BIẾN TOÀN CỤC ---
+        const API_URL = 'http://localhost/api'; 
+        // const API_URL = 'http://localhost:1880/api'; // Dùng cổng Node-RED trực tiếp nếu cần
+        
+        const appElement = document.getElementById('app');
+        let cart = JSON.parse(localStorage.getItem('cart')) || [];
+        let products = []; 
+        let userSession = null; 
+        
+        // --- 2. HÀM XỬ LÝ CHUNG ---
+        function formatCurrency(amount) {
+            const numericAmount = Number(amount);
+            if (isNaN(numericAmount)) return 'N/A';
+            return numericAmount.toLocaleString('vi-VN') + ' VND';
+        }
+
+        function updateCartCount() {
+            const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+            document.getElementById('cart-link').textContent = `Giỏ Hàng (${totalItems})`;
+            localStorage.setItem('cart', JSON.stringify(cart));
+        }
+        
+        function getStatusClass(status) {
+            switch(status) {
+                case 'new': return 'status-new';
+                case 'confirmed': return 'status-confirmed';
+                case 'packaging':
+                case 'shipping': return 'status-packaging';
+                case 'done': return 'status-done';
+                default: return '';
+            }
+        }
+
+        // --- 3. ĐỊNH TUYẾN (ROUTER) ---
+        const routes = {
+            '/home': renderHomePage,
+            '/cart': renderCartPage,
+            '/checkout': renderCheckoutPage,
+            '/login': renderLoginPage,
+            '/admin': renderAdminPage
+        };
+
+        const router = {
+            navigate: async (path) => {
+                window.history.pushState(null, null, '#' + path);
+                await router.loadPage(path);
+            },
+            loadPage: async (path) => {
+                const cleanPath = path.startsWith('#') ? path.substring(1) : path;
+                const handler = routes[cleanPath] || routes['/home'];
+                appElement.innerHTML = 'Đang tải...';
+                await handler(appElement);
+                updateCartCount();
+            }
+        };
+        window.router = router;
+
+        window.addEventListener('popstate', () => {
+            router.loadPage(window.location.hash.replace('#', '') || '/home');
+        });
+
+        // --- 4. HÀM RENDER VÀ LOGIC API ---
+        
+        // Hàm fetch Best Sellers (GIỮ NGUYÊN)
+        async function fetchBestSellers() {
+            try {
+                const response = await fetch(`${API_URL}/best-sellers`); 
+                const result = await response.json();
+                return (result.success && result.products) ? result.products : [];
+            } catch (error) {
+                console.error('Không thể kết nối tới API Best Sellers Backend.', error);
+                return [];
+            }
+        }
+        
+        // Hàm fetch My Products (GIỮ NGUYÊN)
+        async function fetchMyProducts(userId) {
+            try {
+                const response = await fetch(`${API_URL}/my-products`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer user_id:${userId}` 
+                    }
+                }); 
+                const result = await response.json();
+                return (result.success && result.products) ? result.products : [];
+            } catch (error) {
+                console.error('Không thể kết nối tới API My Products Backend.', error);
+                return [];
+            }
+        }
+
+        // 🆕 HÀM FETCH SEARCH RESULTS
+        async function fetchSearchResults(query) {
+            if (!query) return [];
+            try {
+                const response = await fetch(`${API_URL}/products/search?q=${encodeURIComponent(query)}`); 
+                const result = await response.json();
+                return (result.success && result.products) ? result.products : [];
+            } catch (error) {
+                console.error('Không thể kết nối tới API Search Products Backend.', error);
+                return [];
+            }
+        }
+        
+        // Hàm tạo HTML danh sách sản phẩm (GIỮ NGUYÊN)
+        function createProductListHTML(title, products, type = 'general') {
+            if (products.length === 0 && type !== 'my-products') return `<h2 style="color: #333; margin-top: 30px;">${title}</h2><p>Không có sản phẩm nào để hiển thị.</p>`;
+            if (products.length === 0 && type === 'best-seller') return ''; 
+            if (products.length === 0 && type === 'search-results') return `<h2 style="color: #333; margin-top: 30px;">${title}</h2><p>Không tìm thấy sản phẩm nào khớp với từ khóa.</p>`;
+
+            let color = '#333';
+            let badge = '';
+            let cardStyle = '';
+
+            if (type === 'best-seller') {
+                color = '#dc3545';
+                cardStyle = 'border: 3px solid #dc3545; position: relative; overflow: hidden;';
+                badge = '<span style="background-color: #ffc107; color: #333; padding: 3px 8px; border-radius: 4px; font-size: 0.9em; position: absolute; top: 10px; right: 10px; font-weight: bold; transform: rotate(5deg);">🔥 BEST SELLER</span>';
+            } else if (type === 'my-products') {
+                color = '#007bff';
+                cardStyle = 'border: 3px solid #007bff; position: relative; overflow: hidden;';
+                badge = '<span style="background-color: #007bff; color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.9em; position: absolute; top: 10px; right: 10px; font-weight: bold; transform: rotate(5deg);">OWNER</span>';
+                if (products.length === 0) return `<h2 style="color: ${color}; margin-top: 30px;">${title}</h2><p>Bạn chưa có sản phẩm nào để hiển thị.</p>`;
+            } else if (type === 'search-results') {
+                color = '#007bff';
+            }
+
+            let html = `<h2 style="color: ${color}; margin-top: 30px;">${title}</h2><div class="product-list">`;
+            products.forEach(product => {
+                const productDescription = product.description || 'Không có mô tả.'; 
+
+                html += `
+                    <div class="product-card" style="${cardStyle}">
+                        ${type === 'general' || type === 'search-results' ? '' : badge}
+                        <h3>${product.name}</h3>
+                        <p>${productDescription.length > 50 ? productDescription.substring(0, 50) + '...' : productDescription}</p>
+                        <p>Giá: ${formatCurrency(product.price)}</p>
+                        <button onclick="addToCart(${product.id}, '${product.name.replace(/'/g, "\\'")}', ${product.price})">Thêm vào Giỏ</button>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            return html;
+        }
+        window.createProductListHTML = createProductListHTML;
+
+        // 🆕 HÀM XỬ LÝ TÌM KIẾM
+        async function handleSearch() {
+            const query = document.getElementById('search-input').value.trim();
+            const resultsElement = document.getElementById('search-results');
+            
+            if (!query) {
+                // Nếu không có query, load lại trang chủ để hiển thị tất cả
+                router.navigate('/home'); 
+                return;
+            }
+
+            resultsElement.innerHTML = '<p>Đang tìm kiếm...</p>';
+            
+            const searchResults = await fetchSearchResults(query);
+
+            let html = createProductListHTML(`🔍 Kết Quả Tìm Kiếm cho: "${query}"`, searchResults, 'search-results');
+            
+            // Xóa các phần Best Sellers và All Products khỏi DOM
+            document.getElementById('product-sections').style.display = 'none';
+
+            resultsElement.innerHTML = html;
+        }
+        window.handleSearch = handleSearch;
+
+
+        // --- Trang Chủ (Sản phẩm) - ĐÃ SỬA ĐỔI ---
+        async function renderHomePage(element) {
+            element.innerHTML = 'Đang tải sản phẩm...';
+            
+            let html = `
+                <div class="search-bar">
+                    <input type="text" id="search-input" placeholder="Nhập tên sản phẩm cần tìm..." onkeyup="if(event.keyCode === 13) handleSearch()">
+                    <button onclick="handleSearch()">Tìm Kiếm</button>
+                </div>
+                <div id="search-results"></div>
+                <div id="product-sections">
+            `;
+
+            // 1. Hiển thị SẢN PHẨM CỦA TÔI (nếu đã đăng nhập)
+            if (userSession && userSession.id) {
+                const myProducts = await fetchMyProducts(userSession.id);
+                html += createProductListHTML(`🏠 SẢN PHẨM CỦA TÔI (User ID: ${userSession.id})`, myProducts, 'my-products');
+            } 
+            
+            // 2. Lấy danh sách Sản phẩm Bán chạy
+            const bestSellers = await fetchBestSellers(); 
+
+            // 3. Lấy danh sách Sản phẩm chung (Chỉ load 1 lần)
+            if (products.length === 0) {
+                try {
+                    const response = await fetch(`${API_URL}/products`);
+                    const result = await response.json();
+                    if (result.success) {
+                        products = result.products;
+                    } else {
+                        html += `<p style="color: red;">Lỗi tải tất cả sản phẩm: ${result.message}</p>`;
+                    }
+                } catch (error) {
+                    html += `<p style="color: red;">Không thể tải tất cả sản phẩm: Lỗi kết nối API.</p>`;
+                    console.error('Không thể tải tất cả sản phẩm:', error);
+                }
+            }
+
+            // 4. Hiển thị Best Sellers và All Products
+            html += createProductListHTML('🔥 SẢN PHẨM BÁN CHẠY NHẤT TRONG 30 NGÀY', bestSellers, 'best-seller');
+            html += createProductListHTML('Tất Cả Sản Phẩm (Kho)', products.filter(p => !bestSellers.some(bs => bs.id === p.id)), 'general'); // Loại bỏ best sellers khỏi danh sách chung
+            
+            html += '</div>';
+            element.innerHTML = html;
+            
+            // Khôi phục trạng thái tìm kiếm nếu có
+            const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+            const initialQuery = urlParams.get('q');
+            if (initialQuery) {
+                document.getElementById('search-input').value = initialQuery;
+                handleSearch();
+            }
+        }
+
+        // --- Logic Giỏ hàng ---
+        function addToCart(id, name, price) {
+            const existingItem = cart.find(item => item.id === id);
+            if (existingItem) {
+                existingItem.quantity += 1;
+            } else {
+                cart.push({ id, name, price, quantity: 1 });
+            }
+            updateCartCount();
+            alert(`Đã thêm ${name} vào giỏ hàng.`);
+        }
+
+        function updateCartItem(id, quantity) {
+            const item = cart.find(i => i.id === id);
+            if (item) {
+                item.quantity = quantity;
+                if (item.quantity <= 0) {
+                    cart = cart.filter(i => i.id !== id);
+                }
+            }
+            updateCartCount();
+            router.loadPage('/cart');
+        }
+        window.updateCartItem = updateCartItem;
+        window.addToCart = addToCart;
+
+        // --- Trang Giỏ hàng (GIỮ NGUYÊN) ---
+        function renderCartPage(element) {
+            let html = '<h2>🛒 Giỏ Hàng Của Bạn</h2>';
+            let total = 0;
+
+            if (cart.length === 0) {
+                html += '<p>Giỏ hàng của bạn đang trống.</p>';
+            } else {
+                cart.forEach(item => {
+                    const itemTotal = item.price * item.quantity;
+                    total += itemTotal;
+                    html += `
+                        <div class="cart-item">
+                            <div>
+                                <h4>${item.name}</h4>
+                                <p>${formatCurrency(item.price)} x ${item.quantity} = <b>${formatCurrency(itemTotal)}</b></p>
+                            </div>
+                            <div class="cart-controls">
+                                <button onclick="updateCartItem(${item.id}, ${item.quantity - 1})">-</button>
+                                <span>${item.quantity}</span>
+                                <button onclick="updateCartItem(${item.id}, ${item.quantity + 1})">+</button>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                    <h3 style="margin-top: 20px;">Tổng Cộng: <span style="color: #dc3545;">${formatCurrency(total)}</span></h3>
+                    <button class="checkout-button" onclick="router.navigate('/checkout')" style="padding: 15px; font-size: 1.2em;">
+                        Tiến hành Đặt hàng
+                    </button>
+                `;
+            }
+            element.innerHTML = html;
+        }
+
+        // --- Trang Đặt hàng (Checkout) ---
+        function renderCheckoutPage(element) {
+            if (cart.length === 0) {
+                element.innerHTML = '<p>Giỏ hàng trống, không thể thanh toán.</p><button onclick="router.navigate(\'/home\')">Về trang chủ</button>';
+                return;
+            }
+
+            let total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+            let html = `
+                <h2>📝 Thông tin Giao hàng</h2>
+                <div class="checkout-form">
+                    <label for="name">Họ tên:</label>
+                    <input type="text" id="name" required value="${userSession ? userSession.username : 'Khách vãng lai'}">
+                    
+                    <label for="phone">Số điện thoại:</label>
+                    <input type="tel" id="phone" required value="0987654321">
+                    
+                    <label for="address">Địa chỉ:</label>
+                    <input type="text" id="address" required value="Thái Nguyên">
+                    
+                    <h3 style="margin-top: 20px;">Tổng tiền: ${formatCurrency(total)}</h3>
+                    <div id="checkout-status" style="margin-top: 10px; font-weight: bold;"></div>
+
+                    <button onclick="submitOrder(${total})" 
+                        style="width: 100%; padding: 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; font-size: 1.1em; margin-top: 20px;">
+                        HOÀN TẤT ĐẶT HÀNG
+                    </button>
+                </div>
+            `;
+            element.innerHTML = html;
+        }
+
+        // --- LOGIC ĐẶT HÀNG MỚI (GIỮ NGUYÊN) ---
+        async function submitOrder(totalAmount) {
+            const statusElement = document.getElementById('checkout-status');
+            statusElement.style.color = 'black';
+            statusElement.textContent = 'Đang gửi đơn hàng...';
+            
+            const name = document.getElementById('name').value;
+            const phone = document.getElementById('phone').value;
+            const address = document.getElementById('address').value;
+
+            if (!name || !phone || !address) {
+                statusElement.style.color = 'red';
+                statusElement.textContent = 'Vui lòng điền đầy đủ thông tin giao hàng.';
+                return;
+            }
+
+            const orderData = {
+                // Sử dụng ID thực nếu đã đăng nhập, ngược lại dùng 0 cho khách vãng lai
+                user_id: userSession ? userSession.id : 0, 
+                total_amount: totalAmount,
+                // Gửi thông tin giao hàng dưới dạng object
+                delivery_info: { recipient_name: name, phone, address }, 
+                // Gửi chi tiết sản phẩm
+                items: cart.map(item => ({
+                    id: item.id, // Đã đổi tên thành 'id' để khớp với logic Node-RED
+                    name: item.name,
+                    quantity: item.quantity,
+                    price: item.price
+                }))
+            };
+
+            try {
+                const response = await fetch(`${API_URL}/order`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(orderData)
+                });
+                
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    statusElement.style.color = 'green';
+                    statusElement.textContent = `✅ Đặt hàng thành công! ID Đơn hàng: ${result.order_id}`;
+                    
+                    alert(`Đơn hàng #${result.order_id} đã được đặt thành công!`);
+                    cart = []; // Xóa giỏ hàng
+                    updateCartCount();
+                    
+                    // Chờ 2 giây rồi chuyển về trang chủ (hoặc làm mới dữ liệu)
+                    setTimeout(() => router.navigate('/home'), 2000); 
+                    
+                } else {
+                    statusElement.style.color = 'red';
+                    statusElement.textContent = `❌ Đặt hàng thất bại: ${result.message || 'Lỗi không xác định.'}`;
+                    alert(`Đặt hàng thất bại: ${result.message || 'Lỗi server.'}`);
+                }
+
+            } catch (error) {
+                statusElement.style.color = 'red';
+                statusElement.textContent = "❌ Lỗi kết nối tới Backend khi đặt hàng.";
+                console.error("Order API Error:", error);
+            }
+        }
+        window.submitOrder = submitOrder;
+
+        // --- Trang Đăng nhập (GIỮ NGUYÊN) ---
+        function renderLoginPage(element) {
+            if (userSession) {
+                element.innerHTML = `<p>Bạn đang đăng nhập với tài khoản: <b>${userSession.username} (ID: ${userSession.id})</b></p>
+                    <button onclick="handleLogout()">Đăng Xuất</button>
+                    <button onclick="router.navigate('/home')">Về Trang Chủ</button>`;
+                return;
+            }
+            
+            const loginHtml = `
+                <div style="max-width: 400px; margin: 50px auto; padding: 30px; border: 1px solid #ccc; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background: #fff;">
+                    <h2 style="text-align: center; color: #333; margin-bottom: 25px;">Đăng Nhập Hệ Thống</h2>
+                    <label for="login-username" style="display: block; margin-bottom: 5px; font-weight: bold;">Tài khoản:</label>
+                    <input 
+                        type="text" 
+                        id="login-username" 
+                        value="admin" 
+                        placeholder="Nhập tài khoản"
+                        style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"
+                        required
+                    >
+                    <label for="login-password" style="display: block; margin-bottom: 5px; font-weight: bold;">Mật khẩu:</label>
+                    <input 
+                        type="password" 
+                        id="login-password" 
+                        value="adminpass" 
+                        placeholder="Nhập mật khẩu"
+                        style="width: 100%; padding: 10px; margin-bottom: 25px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"
+                        required
+                    >
+                    <button 
+                        onclick="handleLogin()" 
+                        style="width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1.1em; transition: background-color 0.3s;"
+                    >
+                        Đăng Nhập
+                    </button>
+                </div>
+            `;
+            element.innerHTML = loginHtml;
+        }
+        
+        async function handleLogin() {
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            try {
+                const response = await fetch(`${API_URL}/login`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    alert('Đăng nhập thành công!');
+                    // Gán userSession
+                    userSession = result.user; 
+                    router.navigate('/home'); 
+                } else {
+                    alert(`Đăng nhập thất bại: ${result.message || 'Tài khoản hoặc mật khẩu không đúng.'}`);
+                }
+
+            } catch (error) {
+                alert("Lỗi kết nối tới server Node-RED khi đăng nhập!");
+                console.error("Login API Error:", error);
+            }
+        }
+        window.handleLogin = handleLogin;
+        
+        function handleLogout() {
+            userSession = null;
+            alert('Đã đăng xuất.');
+            router.navigate('/home');
+        }
+        window.handleLogout = handleLogout;
+
+
+        // --- Trang Admin (GIỮ NGUYÊN) ---
+        async function renderAdminPage(element) {
+             if (!userSession) {
+                 element.innerHTML = '<p style="color: red;">Bạn cần đăng nhập để truy cập trang quản trị.</p><button onclick="router.navigate(\'/login\')">Đi tới trang Đăng nhập</button>';
+                 return;
+             }
+
+             // Tạm thời bỏ qua việc kiểm tra vai trò admin, chỉ cần đăng nhập là xem được
+             
+             element.innerHTML = '<h2>🛠️ Trang Quản trị Đơn hàng</h2><p>Đang tải dữ liệu đơn hàng...</p>';
+             
+             try {
+                 // GỌI API ĐỂ LẤY DANH SÁCH ĐƠN HÀNG (CẦN XÂY DỰNG TRONG NODE-RED)
+                 const response = await fetch(`${API_URL}/admin/orders`); 
+                 const result = await response.json();
+
+                 if (result.success && result.orders) {
+                     let html = '<h3>Danh sách Đơn hàng (Cần Xác nhận)</h3>';
+                     
+                     if (result.orders.length === 0) {
+                         html += '<p>Chưa có đơn hàng nào.</p>';
+                     } else {
+                          html += `
+                              <table class="order-table">
+                                  <thead>
+                                      <tr>
+                                          <th>ID</th>
+                                          <th>Ngày đặt</th>
+                                          <th>Người đặt</th>
+                                          <th>Địa chỉ giao</th>
+                                          <th>Tổng tiền</th>
+                                          <th>Trạng thái</th>
+                                          <th>Chi tiết SP</th>
+                                          <th>Thao tác</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                          `;
+                          
+                          result.orders.forEach(order => {
+                              // Phân tích JSON cho delivery_info
+                              const delivery = JSON.parse(order.delivery_info || '{}'); 
+                              
+                              // Phân tích JSON cho chi tiết sản phẩm (Giả định Node-RED trả về cột 'items' chứa JSON string của order_details)
+                              // Lưu ý: Đã sửa logic này để xử lý kết quả Node-RED trả về mảng object trực tiếp (như flow Admin Orders mới)
+                              const itemsList = Array.isArray(order.items) ? order.items.map(item => 
+                                   `${item.product_name || 'SP'} x ${item.quantity} (${formatCurrency(item.price)})`
+                               ).join('<br>') : (order.items || 'N/A');
+
+                              const statusClass = getStatusClass(order.status);
+                              
+                              html += `
+                                  <tr>
+                                      <td>#${order.order_id}</td>
+                                      <td>${new Date(order.order_date).toLocaleDateString('vi-VN')}</td>
+                                      <td>${delivery.recipient_name || 'Khách'} <br><small>${delivery.phone || 'N/A'}</small></td>
+                                      <td>${delivery.address || 'N/A'}</td>
+                                      <td><b>${formatCurrency(order.total_amount)}</b></td>
+                                      <td class="${statusClass}">${order.status}</td>
+                                      <td>${itemsList}</td>
+                                      
+                                      <td>
+                                          ${order.status === 'new' ? 
+                                              `<button onclick="updateOrderStatus(${order.order_id}, 'confirmed')" style="background-color: orange; color: white; border: none; padding: 5px; cursor: pointer; border-radius: 4px;">Xác nhận</button>` 
+                                              : ''}
+                                          ${order.status === 'confirmed' ? 
+                                              `<button onclick="updateOrderStatus(${order.order_id}, 'packaging')" style="background-color: blue; color: white; border: none; padding: 5px; cursor: pointer; border-radius: 4px;">Đóng gói</button>` 
+                                              : ''}
+                                          ${(order.status === 'packaging' || order.status === 'shipping') ? 
+                                              `<button onclick="updateOrderStatus(${order.order_id}, 'done')" style="background-color: green; color: white; border: none; padding: 5px; cursor: pointer; border-radius: 4px;">Hoàn tất</button>` 
+                                              : ''}
+                                      </td>
+                                  </tr>
+                              `;
+                          });
+                          
+                          html += '</tbody></table>';
+                     }
+
+                     element.innerHTML = html;
+                     
+                 } else {
+                     element.innerHTML = `<p style="color: red;">Lỗi tải dữ liệu đơn hàng: ${result.message || 'Lỗi không xác định.'}</p>`;
+                 }
+
+             } catch (error) {
+                 element.innerHTML = `<h2>Lỗi</h2><p>Không thể kết nối tới API Admin: ${error.message}</p>`;
+                 console.error("Admin API Fetch Error:", error);
+             }
+        }
+        window.renderAdminPage = renderAdminPage;
+
+
+        // --- LOGIC CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG (GIỮ NGUYÊN) ---
+        async function updateOrderStatus(orderId, newStatus) {
+            if (!userSession) {
+                alert("Bạn cần đăng nhập để thực hiện thao tác này.");
+                return;
+            }
+            if (!confirm(`Bạn có chắc chắn muốn chuyển Đơn hàng #${orderId} sang trạng thái "${newStatus}"?`)) {
+                return;
+            }
+            
+            try {
+                // GỌI API ĐỂ CẬP NHẬT TRẠNG THÁI (CẦN XÂY DỰNG TRONG NODE-RED)
+                const response = await fetch(`${API_URL}/admin/orders/${orderId}`, {
+                    method: 'PUT',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        // Có thể thêm Authorization header nếu Node-RED yêu cầu xác thực Admin
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    alert(result.message || `Đơn hàng #${orderId} đã cập nhật thành công!`);
+                    // Load lại trang Admin sau khi cập nhật
+                    router.navigate('/admin'); 
+                } else {
+                    alert(`Cập nhật thất bại: ${result.message || 'Lỗi server.'}`);
+                }
+
+            } catch (error) {
+                alert("Lỗi kết nối Backend khi cập nhật trạng thái.");
+                console.error("Update Status Error:", error);
+            }
+        }
+        window.updateOrderStatus = updateOrderStatus;
+        
+        // --- 5. KHỞI CHẠY APP ---
+        document.addEventListener('DOMContentLoaded', () => {
+            router.loadPage(window.location.hash.replace('#', '') || '/home');
+        });
+    </script> 
+</body>
+</html>

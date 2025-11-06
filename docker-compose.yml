@@ -1,0 +1,124 @@
+
+services:
+  mariadb:
+    image: mariadb:latest
+    container_name: mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: cuahang
+      MYSQL_USER: viet123
+      MYSQL_PASSWORD: 123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mariadb/data:/var/lib/mysql
+    networks:
+      - shop-network
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: mariadb
+      PMA_PORT: 3306
+      # Lưu ý: MYSQL_ROOT_PASSWORD ở đây không khớp với Mariadb
+      # Dùng ROOT_PASSWORD của Mariadb: 123456
+      MYSQL_ROOT_PASSWORD: 123456 
+    ports:
+      - "8081:80"
+    depends_on:
+      - mariadb
+    networks:
+      - shop-network
+
+  nodered:
+    image: nodered/node-red:latest
+    container_name: nodered
+    restart: always
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./node-red/data:/data
+    user: "1000:1000"
+    depends_on:
+      - mariadb
+      - influxdb
+    networks:
+      - shop-network
+    command: >
+      sh -c "
+      npm install -g node-red-node-mysql &&
+      node-red
+      --httpNodeRoot=/api
+      --httpAdminRoot=/nodered
+      --functionGlobalContext.mysql=require('mysql').createPool({host:'mariadb',user:'viet123',password:'123456',database:'cuahang',port:3306,charset:'utf8mb4',connectionLimit:10})
+      --functionGlobalContext.crypto=require('crypto')
+      "
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    restart: always
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin123
+      - DOCKER_INFLUXDB_INIT_ORG=ecommerce
+      - DOCKER_INFLUXDB_INIT_BUCKET=statistics
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
+    ports:
+      - "8086:8086"
+    volumes:
+      - ./influxdb/data:/var/lib/influxdb2
+    networks:
+      - shop-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    environment:
+      - GF_SERVER_HTTP_PORT=3000
+      # ĐÃ SỬA: Dùng localhost để tránh lỗi domain/root URL
+      - GF_SERVER_ROOT_URL=http://nguyenhoangviet.com/grafana 
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/data:/var/lib/grafana
+    depends_on:
+      - influxdb
+    networks:
+      - shop-network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    restart: always
+    ports:
+      - "80:80"
+      # Đã bỏ cổng 443 vì không cần thiết và dễ gây lỗi nếu thiếu cấu hình SSL
+      # - "443:443" 
+    volumes:
+      # KHẲNG ĐỊNH: Đảm bảo file default.conf nằm ở ./nginx/conf.d/default.conf
+      # Nếu file nằm ở ./nginx/default.conf, bạn cần sửa lại đường dẫn này.
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # ĐÃ LOẠI BỎ: Loại bỏ mount certs để tránh lỗi nếu thư mục/file không tồn tại
+      # - ./nginx/certs:/etc/nginx/certs:ro
+      # ĐƯỜNG DẪN WEB ĐÚNG: Đã sửa để khớp với root /var/www/html trong default.conf
+      - ./web:/var/www/html:ro
+    depends_on:
+      - nodered
+      - grafana
+    networks:
+      - shop-network
+
+networks:
+  shop-network:
+    driver: bridge
